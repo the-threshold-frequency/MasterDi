@@ -1,168 +1,232 @@
 "use client"
 
-import { useState } from "react"
-import { Dialog } from "@headlessui/react"
+import { useEffect, useState } from "react"
+import supabase from "@/lib/supabaseClient"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle
+} from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
+import { Plus } from "lucide-react"
 
-const initialTimeSlots = ["08:00", "09:00", "10:00", "11:00"]
 const days = ["Mon", "Tue", "Wed", "Thu", "Fri"]
 
+type Task = {
+  id: string
+  day: string
+  time_slot: string
+  title: string
+  comment?: string
+  reminder?: string
+}
+
 export default function TimeTablePage() {
-  const [timeSlots, setTimeSlots] = useState(initialTimeSlots)
-const [tasks, setTasks] = useState<Record<string, { title: string; comment: string; reminder: string }>>({})
-  const [selectedSlot, setSelectedSlot] = useState<string | null>(null)
-  const [modalOpen, setModalOpen] = useState(false)
+  const [timeSlots, setTimeSlots] = useState(["08:00", "09:00", "10:00"])
+  const [tasks, setTasks] = useState<Task[]>([])
+  const [selected, setSelected] = useState({ day: '', time: '' })
+  const [editData, setEditData] = useState({ title: '', comment: '', reminder: '' })
   const [editMode, setEditMode] = useState(false)
+  const [open, setOpen] = useState(false)
+  const [isEditingExisting, setIsEditingExisting] = useState(false)
+  const [editTaskId, setEditTaskId] = useState<string | null>(null)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
 
-  const handleCellClick = (day: string, time: string) => {
-    if (!editMode) return
-    setSelectedSlot(`${day}_${time}`)
-    setModalOpen(true)
+  const fetchTasks = async () => {
+    const { data, error } = await supabase.from('timetable_tasks').select('*')
+    if (error) console.error("Fetch error:", error)
+    else setTasks(data as Task[])
   }
 
-type Task = { title: string; comment: string; reminder: string }
-const handleSave = (data: Task) => {
+  useEffect(() => {
+    fetchTasks()
+  }, [])
 
-    if (selectedSlot) {
-      setTasks(prev => ({ ...prev, [selectedSlot]: data }))
+  const handleSave = async () => {
+    const payload = {
+      day: selected.day,
+      time_slot: selected.time,
+      title: editData.title,
+      comment: editData.comment || null,
+      reminder: editData.reminder ? new Date(editData.reminder).toISOString() : null,
     }
-    setModalOpen(false)
+
+    try {
+      if (isEditingExisting && editTaskId) {
+        const { error } = await supabase
+          .from("timetable_tasks")
+          .update(payload)
+          .eq("id", editTaskId)
+        if (error) console.error("Update error:", error)
+      } else {
+        const { error } = await supabase.from("timetable_tasks").insert(payload)
+        if (error) console.error("Insert error:", error)
+      }
+    } catch (e) {
+      console.error("Unexpected error during insert/update:", e)
+    }
+
+    setOpen(false)
+    setEditTaskId(null)
+    fetchTasks()
   }
 
-  const handleDeleteTimeSlot = (index: number) => {
-    if (!editMode) return
-    const updated = [...timeSlots]
-    updated.splice(index, 1)
-    setTimeSlots(updated)
+  const handleDelete = async () => {
+    if (!confirmDeleteId) return
+    const { error } = await supabase.from('timetable_tasks').delete().eq('id', confirmDeleteId)
+    if (error) console.error("Delete error:", error)
+    setConfirmDeleteId(null)
+    fetchTasks()
   }
 
-  const handleAddTimeSlot = () => {
-    if (!editMode) return
-    const newTime = prompt("Enter new time (e.g., 12:00):")
-    if (newTime) setTimeSlots([...timeSlots, newTime])
+  const groupedTasks = (day: string, time: string) => {
+    return tasks.filter(t => t.day === day && t.time_slot === time)
   }
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white p-4">
+    <div className="min-h-screen bg-[#0a0a0a] text-white p-4">
       <div className="flex justify-between items-center mb-4">
-        <h1 className="text-neon-green text-2xl font-bold">🗓️ Timetable</h1>
-        <div className="flex gap-2">
-          {editMode && (
-            <Button className="bg-neon-pink text-black" onClick={handleAddTimeSlot}>+ Add Time</Button>
-          )}
-          <Button
-            className={editMode ? "bg-gray-700 text-white" : "bg-neon-green text-black"}
-            onClick={() => setEditMode(!editMode)}
-          >
-            {editMode ? "Done" : "Edit"}
-          </Button>
-        </div>
+        <h1 className="text-xl font-bold text-neon">My Timetable</h1>
+        <Button variant="outline" onClick={() => setEditMode(!editMode)}>
+          {editMode ? "Lock" : "Edit"}
+        </Button>
       </div>
 
-      <div className="overflow-auto rounded-lg border border-gray-700">
-        <div className="grid grid-cols-[80px_repeat(5,minmax(0,1fr))] border-t border-l border-gray-800">
-          <div className="bg-gray-800 p-2 border-b border-r border-gray-800 text-center font-semibold">Time</div>
+      <div className="overflow-x-auto">
+        <div className="grid" style={{ gridTemplateColumns: `100px repeat(${days.length}, 1fr)` }}>
+          <div></div>
           {days.map(day => (
-            <div key={day} className="bg-gray-800 p-2 border-b border-r border-gray-800 text-center font-semibold">
+            <div key={day} className="text-center text-neon font-semibold border-b border-gray-600 py-2">
               {day}
             </div>
           ))}
 
-          {timeSlots.map((time, i) => (
-            <>
-              <div key={time} className="bg-gray-800 p-2 border-b border-r border-gray-800 text-center relative">
-                {time}
+          {timeSlots.map(slot => (
+            <div className="contents" key={`row-${slot}`}>
+              <div className="border-r border-gray-600 py-2 text-sm text-gray-300 text-right pr-2 relative">
+                {slot}
                 {editMode && (
                   <button
-                    onClick={() => handleDeleteTimeSlot(i)}
-                    className="absolute top-1 right-1 text-xs text-neon-red"
+                    className="absolute right-1 top-1 text-red-400"
+                    onClick={() => setTimeSlots(prev => prev.filter(s => s !== slot))}
                   >
-                    ✖
+                    ✕
                   </button>
                 )}
               </div>
+              {days.map(day => (
+                <div
+                  key={`${day}-${slot}`}
+                  className="h-24 border border-gray-700 p-1 hover:bg-[#111] cursor-pointer"
+                  onClick={(e) => {
+                    if (!editMode) return
+                    // Clicking background = add new task
+                    if ((e.target as HTMLElement).closest(".task-item")) return
 
-              {days.map(day => {
-                const key = `${day}_${time}`
-                const task = tasks[key]
-                return (
-                  <div
-                    key={key}
-                    className={`p-2 border-b border-r border-gray-800 min-h-[60px] ${
-                      editMode ? "hover:bg-gray-700 cursor-pointer" : ""
-                    }`}
-                    onClick={() => handleCellClick(day, time)}
-                  >
-                    <div className="text-neon-green text-sm font-medium truncate">{task?.title}</div>
-                    <div className="text-gray-400 text-xs truncate">{task?.comment}</div>
-                  </div>
-                )
-              })}
-            </>
+                    setSelected({ day, time: slot })
+                    setEditData({ title: '', comment: '', reminder: '' })
+                    setIsEditingExisting(false)
+                    setEditTaskId(null)
+                    setOpen(true)
+                  }}
+                >
+                  {groupedTasks(day, slot).map(task => (
+                    <div
+                      key={task.id}
+                      className="task-item bg-[#1a1a1a] text-xs p-1 rounded-md mb-1 border border-neon relative"
+                      onClick={(e) => {
+                        if (!editMode) return
+                        e.stopPropagation()
+                        setSelected({ day, time: slot })
+                        setEditData({
+                          title: task.title,
+                          comment: task.comment || '',
+                          reminder: task.reminder
+                            ? new Date(task.reminder).toISOString().slice(0, 16)
+                            : '',
+                        })
+                        setIsEditingExisting(true)
+                        setEditTaskId(task.id)
+                        setOpen(true)
+                      }}
+                    >
+                      <div className="font-bold text-neon">{task.title}</div>
+                      {task.comment && <div className="text-gray-400 text-xs">{task.comment}</div>}
+                      {editMode && (
+                        <button
+                          className="absolute top-1 right-1 text-red-400 text-xs"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setConfirmDeleteId(task.id)
+                          }}
+                        >✕</button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
           ))}
         </div>
+
+        {editMode && (
+          <div className="mt-4 flex gap-2">
+            <Button onClick={() => {
+              const time = prompt("New time (HH:MM):")?.trim()
+              if (time) setTimeSlots(prev => [...prev, time])
+            }}>
+              <Plus className="w-4 h-4 mr-1" /> Add Time Slot
+            </Button>
+          </div>
+        )}
       </div>
 
-      <EditModal
-        open={modalOpen}
-        onClose={() => setModalOpen(false)}
-        onSave={handleSave}
-        existing={selectedSlot ? tasks[selectedSlot] : null}
-      />
+      {/* Task Add/Edit Dialog */}
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="bg-[#121212] border border-neon text-white">
+          <DialogHeader>
+            <DialogTitle className="text-neon">
+              {isEditingExisting ? "Edit Task" : "Add Task"} ({selected.day} @ {selected.time})
+            </DialogTitle>
+          </DialogHeader>
+          <Input
+            placeholder="Task title"
+            value={editData.title}
+            onChange={e => setEditData(prev => ({ ...prev, title: e.target.value }))}
+          />
+          <Textarea
+            placeholder="Comment"
+            value={editData.comment}
+            onChange={e => setEditData(prev => ({ ...prev, comment: e.target.value }))}
+          />
+          <Input
+            type="datetime-local"
+            value={editData.reminder}
+            onChange={e => setEditData(prev => ({ ...prev, reminder: e.target.value }))}
+          />
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+            <Button onClick={handleSave}>Save</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirm Delete Dialog */}
+      <Dialog open={!!confirmDeleteId} onOpenChange={() => setConfirmDeleteId(null)}>
+        <DialogContent className="bg-[#121212] border border-red-500 text-white max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-red-400">Confirm Delete</DialogTitle>
+          </DialogHeader>
+          <p>Are you sure you want to delete this task?</p>
+          <div className="flex justify-end gap-2 mt-4">
+            <Button variant="outline" onClick={() => setConfirmDeleteId(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={handleDelete}>Delete</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
-  )
-}
-
-type Task = { title: string; comment: string; reminder: string }
-
-interface EditModalProps {
-  open: boolean
-  onClose: () => void
-  onSave: (data: Task) => void
-  existing?: Task | null
-}
-
-function EditModal({ open, onClose, onSave, existing }: EditModalProps) {
-
-  const [title, setTitle] = useState(existing?.title || "")
-  const [comment, setComment] = useState(existing?.comment || "")
-  const [reminder, setReminder] = useState(existing?.reminder || "")
-
-  const handleSubmit = () => {
-    onSave({ title, comment, reminder })
-    setTitle("")
-    setComment("")
-    setReminder("")
-  }
-
-  return (
-    <Dialog open={open} onClose={onClose} className="fixed z-50 inset-0 flex items-center justify-center bg-black/60">
-      <Dialog.Panel className="bg-gray-800 rounded-xl p-6 w-[90%] max-w-md border border-neon-pink text-white space-y-4">
-        <Dialog.Title className="text-neon-pink text-lg font-semibold">Edit Task</Dialog.Title>
-        <input
-          className="w-full p-2 bg-gray-700 rounded text-white placeholder-gray-400"
-          placeholder="Title"
-          value={title}
-          onChange={e => setTitle(e.target.value)}
-        />
-        <textarea
-          className="w-full p-2 bg-gray-700 rounded text-white placeholder-gray-400"
-          placeholder="Comment"
-          value={comment}
-          onChange={e => setComment(e.target.value)}
-        />
-        <input
-          type="datetime-local"
-          className="w-full p-2 bg-gray-700 rounded text-white"
-          value={reminder}
-          onChange={e => setReminder(e.target.value)}
-        />
-
-        <div className="flex justify-between mt-4">
-          <Button className="bg-gray-600" onClick={onClose}>Cancel</Button>
-          <Button className="bg-neon-green text-black" onClick={handleSubmit}>Save</Button>
-        </div>
-      </Dialog.Panel>
-    </Dialog>
   )
 }
