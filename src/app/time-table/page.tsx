@@ -9,7 +9,7 @@ const days = ["Mon", "Tue", "Wed", "Thu", "Fri"]
 
 export default function TimeTablePage() {
   const [timeSlots, setTimeSlots] = useState(initialTimeSlots)
-  const [tasks, setTasks] = useState<{ [key: string]: any }>({})
+const [tasks, setTasks] = useState<Record<string, { title: string; comment: string; reminder: string }>>({})
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [editMode, setEditMode] = useState(false)
@@ -20,7 +20,9 @@ export default function TimeTablePage() {
     setModalOpen(true)
   }
 
-  const handleSave = (data: any) => {
+type Task = { title: string; comment: string; reminder: string }
+const handleSave = (data: Task) => {
+
     if (selectedSlot) {
       setTasks(prev => ({ ...prev, [selectedSlot]: data }))
     }
@@ -111,7 +113,17 @@ export default function TimeTablePage() {
   )
 }
 
-function EditModal({ open, onClose, onSave, existing }: any) {
+type Task = { title: string; comment: string; reminder: string }
+
+interface EditModalProps {
+  open: boolean
+  onClose: () => void
+  onSave: (data: Task) => void
+  existing?: Task | null
+}
+
+function EditModal({ open, onClose, onSave, existing }: EditModalProps) {
+
   const [title, setTitle] = useState(existing?.title || "")
   const [comment, setComment] = useState(existing?.comment || "")
   const [reminder, setReminder] = useState(existing?.reminder || "")
